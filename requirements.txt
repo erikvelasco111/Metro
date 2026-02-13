@@ -1,0 +1,9 @@
+streamlit
+requests
+googlemaps
+SpeechRecognition
+langchain-google-genai
+langchain-core
+pydantic
+streamlit-js-eval
+streamlit-mic-recorder
