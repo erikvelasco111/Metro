@@ -84,46 +84,7 @@ st.markdown(f"""
     .stChatInput {{
         border-color: #F7931E !important;
     }}
-    
-    /* 🚀 BOTONES DE MENÚ: CUADRADOS Y MASIVOS */
-    div[data-testid="stVerticalBlock"] > div:has(button[key^="btn_"]) button {{
-        width: 100% !important;
-        aspect-ratio: 1 / 1 !important; /* Forza forma cuadrada */
-        height: auto !important;
-        border-radius: 30px !important;
-        border: 4px solid #F7931E !important;
-        background-color: #ffffff !important;
-        display: flex !important;
-        align-items: center !important;
-        justify-content: center !important;
-        transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275) !important;
-        padding: 0 !important;
-    }}
-    
-    div[data-testid="stVerticalBlock"] > div:has(button[key^="btn_"]) button:hover {{
-        transform: translateY(-10px) scale(1.02) !important;
-        border: 4px solid #000000 !important;
-        box-shadow: 0 15px 30px rgba(0,0,0,0.15) !important;
-    }}
-    
-    div[data-testid="stVerticalBlock"] > div:has(button[key^="btn_"]) button p {{
-        font-size: 130px !important; /* Ícono Masivo */
-        margin: 0 !important;
-        line-height: 1 !important;
-        display: flex !important;
-        align-items: center !important;
-        justify-content: center !important;
-    }}
-    
-    /* BOTÓN DE RETROCESO */
-    .btn-back div[data-testid="stButton"] button {{
-        height: 60px;
-        border-radius: 10px;
-        border: 1px solid #ccc;
-    }}
-    .btn-back div[data-testid="stButton"] button p {{
-        font-size: 30px !important;
-    }}
+
 </style>
 
 <div class="metro-navbar">
@@ -429,19 +390,18 @@ with col1:
             with c_ph2: st.image(PLACEHOLDER_PATH) 
         else:
             st.info("Iniciando sistema...")
-        
+
         try:
             data = st.session_state.did_agent.create_stream()
             if "error" in data or "id" not in data:
-                error_msg = data.get("details", "Error desconocido de D-ID")
-                st.error(f"⚠️ Error al crear stream: {error_msg}")
-                if st.button("🔄 Reintentar"): st.rerun()
+                # Interfaz limpia sin botones de error ni JSON extraño
+                st.warning("⚠️ Módulo en mantenimiento o saturado. Por favor, recarga la página en un par de minutos.")
             else:
                 st.session_state.stream_data = data
                 st.rerun() 
-        except Exception as e:
-            st.error(f"Error crítico: {e}")
-            if st.button("Reintentar"): st.rerun()
+        except Exception:
+            st.warning("⚠️ Error de conexión. Intenta recargar la página.")
+
     else:
         html_code = get_webrtc_js(st.session_state.stream_data, DID_AGENT_ID, DID_API_KEY, placeholder_src)
         components.html(html_code, height=470)
@@ -451,19 +411,57 @@ with col1:
 # ==========================================================
 with col2:
     st.markdown("")
-    
-    if st.session_state.active_mode is None:
-        with st.container():
-            c_menu1, c_menu2 = st.columns(2)
-            with c_menu1:
-                if st.button(MODOS["rutas"]["icon"], use_container_width=True, key="btn_rutas"): st.session_state.active_mode = "rutas"; st.rerun()
-                st.markdown("<br>", unsafe_allow_html=True)
-                if st.button(MODOS["turismo"]["icon"], use_container_width=True, key="btn_turismo"): st.session_state.active_mode = "turismo"; st.rerun()
-            with c_menu2:
-                if st.button(MODOS["mundial"]["icon"], use_container_width=True, key="btn_mundial"): st.session_state.active_mode = "mundial"; st.rerun()
-                st.markdown("<br>", unsafe_allow_html=True)
-                if st.button(MODOS["seguridad"]["icon"], use_container_width=True, key="btn_seguridad"): st.session_state.active_mode = "seguridad"; st.rerun()
 
+    if st.session_state.active_mode is None:
+        # 🚀 CSS DINÁMICO: Forza un cuadrado perfecto con aspect-ratio
+        # 🚀 CSS DINÁMICO: Forza un cuadrado perfecto y emojis masivos
+        st.markdown("""
+        <style>
+            /* 1. Forma del botón (Cuadrado perfecto) */
+            div[data-testid="stButton"] button {
+                width: 100% !important;
+                aspect-ratio: 1 / 1 !important;
+                height: auto !important;
+                border-radius: 30px !important;
+                border: 4px solid #F7931E !important;
+                background-color: #ffffff !important;
+                transition: transform 0.2s !important;
+            }
+            
+            div[data-testid="stButton"] button:hover {
+                transform: scale(1.05) !important;
+                border: 4px solid #000000 !important;
+                box-shadow: 0 15px 30px rgba(0,0,0,0.15) !important;
+            }
+            
+            /* 2. 🚀 AQUÍ CONTROLAS EL TAMAÑO DEL EMOJI */
+            /* Agregamos la etiqueta 'div' y 'p' porque Streamlit a veces cambia donde guarda el texto */
+            div[data-testid="stButton"] button p,
+            div[data-testid="stButton"] button div {
+                font-size: 80px !important; /* <--- MODIFICA ESTE NÚMERO (ej. 130px, 150px) */
+                margin: 0 !important;
+                line-height: 1 !important;
+                display: flex !important;
+                align-items: center !important;
+                justify-content: center !important;
+            }
+        </style>
+        """, unsafe_allow_html=True)
+
+        # 🚀 CONTENEDOR AJUSTADO: Usamos una proporción 1-6-1 para centrar la grilla
+        # Al limitar el ancho, limitamos el alto automáticamente (gracias al aspect-ratio)
+        espacio_izq, centro, espacio_der = st.columns([2, 4, 2])
+        
+        with centro:
+            st.write("") # Pequeño respiro arriba
+            c_menu1, c_menu2 = st.columns(2, gap="medium")
+            with c_menu1:
+                if st.button(MODOS["rutas"]["icon"], use_container_width=True): st.session_state.active_mode = "rutas"; st.rerun()
+                if st.button(MODOS["turismo"]["icon"], use_container_width=True): st.session_state.active_mode = "turismo"; st.rerun()
+            with c_menu2:
+                if st.button(MODOS["mundial"]["icon"], use_container_width=True): st.session_state.active_mode = "mundial"; st.rerun()
+                if st.button(MODOS["seguridad"]["icon"], use_container_width=True): st.session_state.active_mode = "seguridad"; st.rerun()
+    
     else:
         modo_actual = MODOS[st.session_state.active_mode]
         
@@ -495,6 +493,14 @@ with col2:
                     if msg.get("map_url"):
                         st.components.v1.iframe(msg["map_url"], height=300, scrolling=True)
 
+                        # 🚀 NUEVO: MOSTRAR EL QR SI EXISTE EN EL MENSAJE
+                        if msg.get("qr_url"):
+                            c_qr, c_texto = st.columns([1, 3])
+                            with c_qr:
+                                st.image(msg["qr_url"], width=120)
+                            with c_texto:
+                                st.info("📱 **Escanea este código** para llevarte la ruta y abrirla directamente en los mapas de tu celular.")
+
         with st.container(border=True):
             c_mic, c_txt = st.columns([1, 4])
             with c_mic: audio_data = mic_recorder(start_prompt="🎤", stop_prompt="⏹️", key='recorder', format="wav", use_container_width=True)
@@ -519,6 +525,8 @@ with col2:
                     texto_resp = resp.get("responseText", "Error de red")
                     map_url = None
 
+                    qr_url = None # Inicializamos el QR como vacío por defecto
+
                     if resp.get("mostrar_mapa") and resp.get("destino"):
                         origen_raw = "Zócalo, CDMX" 
                         destino_raw = resp.get("destino") + ", CDMX"
@@ -528,6 +536,12 @@ with col2:
                         
                         map_url = f"https://www.google.com/maps/embed/v1/directions?key={GOOGLE_API_KEY}&origin={origen}&destination={destino}&mode=transit"
                         
+                        # 🚀 NUEVO: GENERADOR DE QR SIMPLE
+                        # Creamos una URL de Google Maps para móviles y pedimos la imagen QR a una API pública
+                        mobile_url = f"https://www.google.com/maps/dir/?api=1&origin={origen}&destination={destino}&travelmode=transit"
+                        qr_url = f"https://api.qrserver.com/v1/create-qr-code/?size=150x150&data={urllib.parse.quote(mobile_url)}"
+                        # -----------------------------------
+
                         instrucciones_reales = obtener_instrucciones_habladas(origen_raw, destino_raw)
                         
                         advertencia = ""
@@ -536,15 +550,12 @@ with col2:
                         elif "🟢 Ágil" in location_context:
                             advertencia = "El flujo en tu estación actual es ágil. "
 
-                        # Unimos la advertencia y las instrucciones en español
                         texto_preparado = advertencia + instrucciones_reales
-                        
-                        # 🚀 MODIFICACIÓN MULTILENGUAJE:
-                        # Traducimos el paquete completo al idioma del usuario
                         texto_resp = st.session_state.did_agent.traduccion_inteligente(texto_preparado, final_query)
 
                     st.session_state.did_agent.send_text_to_stream(st.session_state.stream_data["id"], st.session_state.stream_data["session_id"], texto_resp)
-                    st.session_state.chat_history.append({"role": "assistant", "content": texto_resp, "map_url": map_url})
+                    # Guardamos el qr_url en el historial para que se pinte en pantalla
+                    st.session_state.chat_history.append({"role": "assistant", "content": texto_resp, "map_url": map_url, "qr_url": qr_url})
                 
                 st.rerun()
             else:
