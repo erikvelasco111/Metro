@@ -272,6 +272,7 @@ class DIDAgent:
             - MULTILENGUAJE: Detecta el idioma en el que está escrita la "PREGUNTA" y responde SIEMPRE en ese mismo idioma de forma nativa.
             - MAPAS: Si la pregunta requiere dar direcciones de cómo llegar, pon 'mostrar_mapa' en true, y llena ÚNICAMENTE el 'destino'. 
             - Si muestras el mapa, tu 'responseText' SOLO debe decir que la ruta está en pantalla. NO des pasos verbales.
+            - PROHIBIDO usar frases de relleno como 'Entiendo', 'Claro' o 'Aquí tienes la información'.
             - {format_instructions}
             """
         )
@@ -284,6 +285,24 @@ class DIDAgent:
             })
         except Exception:
             return {"responseText": "Lo siento, hay intermitencia en la red."}
+
+    def traduccion_inteligente(self, texto_espanol: str, query_usuario: str) -> str:
+        """Traduce instrucciones técnicas al idioma detectado en la pregunta del usuario."""
+        prompt = ChatPromptTemplate.from_template(
+            "Eres el intérprete del Metro CDMX. Traduce este texto: '{texto}' "
+            "al idioma de la pregunta: '{query}'. "
+            "\n\nREGLA CRÍTICA: NO incluyas introducciones, explicaciones ni comentarios. "
+            "NO digas 'Aquí está la traducción' ni nada parecido. "
+            "Devuelve ÚNICAMENTE el texto traducido de forma directa. "
+            "Mantén nombres de estaciones en español."
+        )
+        chain = prompt | self.llm
+        try:
+            resultado = chain.invoke({"texto": texto_espanol, "query": query_usuario})
+            # Usamos strip() para limpiar cualquier salto de línea accidental
+            return resultado.content.strip() 
+        except:
+            return texto_espanol
 
     def transcribe_audio(self, audio_bytes: bytes) -> str:
         r = sr.Recognizer()
@@ -516,8 +535,13 @@ with col2:
                             advertencia = "Precaución, el sistema de cámaras detecta saturación alta en tu estación de origen. "
                         elif "🟢 Ágil" in location_context:
                             advertencia = "El flujo en tu estación actual es ágil. "
-                            
-                        texto_resp = advertencia + instrucciones_reales
+
+                        # Unimos la advertencia y las instrucciones en español
+                        texto_preparado = advertencia + instrucciones_reales
+                        
+                        # 🚀 MODIFICACIÓN MULTILENGUAJE:
+                        # Traducimos el paquete completo al idioma del usuario
+                        texto_resp = st.session_state.did_agent.traduccion_inteligente(texto_preparado, final_query)
 
                     st.session_state.did_agent.send_text_to_stream(st.session_state.stream_data["id"], st.session_state.stream_data["session_id"], texto_resp)
                     st.session_state.chat_history.append({"role": "assistant", "content": texto_resp, "map_url": map_url})
