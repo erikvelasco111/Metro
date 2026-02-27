@@ -20,6 +20,7 @@ st.set_page_config(page_title="Metro CDMX - Módulo Virtual", layout="wide", pag
 # --- 2. CONFIGURACIÓN DE ARCHIVOS Y RUTAS ---
 LOGO_PATH = "Logo_STC_METRO.svg" 
 VIDEOS_DIR = "videos"
+PLACEHOLDER_PATH = "espera.jpeg"
 
 def get_image_src(image_path):
     if os.path.exists(image_path):
@@ -90,7 +91,6 @@ class DemoAgent:
         except: return ""
 
     def clasificar_intencion(self, query: str) -> dict:
-        """El verdadero mago: detecta qué pregrabado lanzar según lo que diga el usuario."""
         prompt = ChatPromptTemplate.from_template(
             "Clasifica esta pregunta del usuario: '{query}'. "
             "Responde ÚNICAMENTE con una de estas 4 claves: "
@@ -103,7 +103,6 @@ class DemoAgent:
         try:
             intencion = (prompt | self.llm).invoke({"query": query}).content.strip().lower()
             
-            # Mapeamos la intención al video de Hedra, el destino para el mapa y el texto de respaldo
             if "azteca" in intencion:
                 return {"video": f"{VIDEOS_DIR}/resp_azteca.mp4", "destino": "Estadio Azteca", "texto": "Ruta al Estadio Azteca confirmada. Desde Zócalo, toma la Línea 2 hasta Tasqueña y ahí transborda al Tren Ligero hasta la estación Estadio Azteca. Ten en cuenta que hay saturación alta en esta estación, toma precauciones. Tu mapa está en pantalla."}
             elif "sudafrica" in intencion:
@@ -128,10 +127,125 @@ if "active_mode" not in st.session_state: st.session_state.active_mode = None
 if "chat_history" not in st.session_state: st.session_state.chat_history = []
 if "current_video" not in st.session_state: st.session_state.current_video = f"{VIDEOS_DIR}/idle.mp4"
 
-# --- LAYOUT PRINCIPAL ---
-col1, col2 = st.columns([1, 2], gap="large")
+
+# --- LAYOUT PRINCIPAL (Menú Izquierda [2], Avatar Derecha [1]) ---
+col1, col2 = st.columns([2, 1], gap="large")
 
 with col1:
+    st.markdown("")
+
+    if st.session_state.active_mode is None:
+        # MENÚ PRINCIPAL MASIVO
+        st.markdown("""
+        <style>
+            div[data-testid="stButton"] button { width: 100% !important; aspect-ratio: 1 / 1 !important; height: auto !important; border-radius: 30px !important; border: 4px solid #F7931E !important; background-color: #ffffff !important; transition: transform 0.2s !important; }
+            div[data-testid="stButton"] button:hover { transform: scale(1.05) !important; border: 4px solid #000000 !important; box-shadow: 0 15px 30px rgba(0,0,0,0.15) !important; }
+            div[data-testid="stButton"] button p, div[data-testid="stButton"] button div { font-size: 102px !important; margin: 0 !important; line-height: 1 !important; display: flex !important; align-items: center !important; justify-content: center !important; }
+        </style>
+        """, unsafe_allow_html=True)
+
+        st.markdown("<h2 style='text-align: center; color: #333; margin-bottom: 30px;'>👆 Toca una opción para comenzar:</h2>", unsafe_allow_html=True)
+        
+        col_rutas, col_turismo, col_mundial, col_seguridad = st.columns(4, gap="medium")
+        
+        with col_rutas:
+            if st.button(MODOS["rutas"]["icon"], use_container_width=True): 
+                st.session_state.active_mode = "rutas"
+                st.session_state.current_video = MODOS["rutas"]["video"]
+                st.rerun()
+            st.markdown("<h3 style='text-align: center; margin-top: 10px; color: #555;'>Mapas y rutas</h3>", unsafe_allow_html=True)
+                
+        with col_turismo:
+            if st.button(MODOS["turismo"]["icon"], use_container_width=True): 
+                st.session_state.active_mode = "turismo"
+                st.session_state.current_video = MODOS["turismo"]["video"]
+                st.rerun()
+            st.markdown("<h3 style='text-align: center; margin-top: 10px; color: #555;'>Puntos de interés</h3>", unsafe_allow_html=True)
+                
+        with col_mundial:
+            if st.button(MODOS["mundial"]["icon"], use_container_width=True): 
+                st.session_state.active_mode = "mundial"
+                st.session_state.current_video = MODOS["mundial"]["video"]
+                st.rerun()
+            st.markdown("<h3 style='text-align: center; margin-top: 10px; color: #555;'>Horarios y sedes</h3>", unsafe_allow_html=True)
+                
+        with col_seguridad:
+            if st.button(MODOS["seguridad"]["icon"], use_container_width=True): 
+                st.session_state.active_mode = "seguridad"
+                st.session_state.current_video = MODOS["seguridad"]["video"]
+                st.rerun()
+            st.markdown("<h3 style='text-align: center; margin-top: 10px; color: #555;'>Seguridad</h3>", unsafe_allow_html=True)
+
+    else:
+        modo_actual = MODOS[st.session_state.active_mode]
+        c_back, c_icon, c_void = st.columns([1, 1, 3])
+        with c_back:
+            # CSS para hacer grande el botón de regresar
+            st.markdown("""
+            <style>
+            div[data-testid="column"]:first-child button { height: 70px !important; border-radius: 15px !important; font-size: 24px !important; font-weight: bold !important; border: 2px solid #ccc !important; }
+            </style>
+            """, unsafe_allow_html=True)
+            
+            if st.button("🔙 Regresar", key="btn_back", use_container_width=True):
+                st.session_state.active_mode = None
+                st.session_state.chat_history = []
+                st.session_state.current_video = f"{VIDEOS_DIR}/idle.mp4"
+                st.rerun()
+        with c_icon:
+            st.markdown(f"<h1 style='margin-top: -10px; font-size: 60px;'>{modo_actual['icon']}</h1>", unsafe_allow_html=True)
+            
+        st.divider()
+
+        with st.container(height=280, border=False):
+            for msg in st.session_state.chat_history:
+                with st.chat_message(msg["role"]):
+                    st.write(msg["content"])
+                    if msg.get("map_url"):
+                        st.components.v1.iframe(msg["map_url"], height=300, scrolling=True)
+                        if msg.get("qr_url"):
+                            c_qr, c_texto = st.columns([1, 3])
+                            with c_qr: st.image(msg["qr_url"], width=120)
+                            with c_texto: st.info("📱 **Escanea este código** para llevarte la ruta a tu celular.")
+
+        with st.container(border=True):
+            c_mic, c_txt = st.columns([1, 4])
+            with c_mic: audio_data = mic_recorder(start_prompt="🎤 Hablar", stop_prompt="⏹️ Detener", key='recorder', format="wav", use_container_width=True)
+            with c_txt: text_input = st.chat_input("Escribe tu duda aquí...")
+
+        final_query = None
+        if audio_data and ("last_audio_id" not in st.session_state or st.session_state.last_audio_id != audio_data['id']):
+            st.session_state.last_audio_id = audio_data['id']
+            with st.spinner("⏳"):
+                texto = st.session_state.demo_agent.transcribe_audio(audio_data['bytes'])
+                if texto: final_query = texto
+        elif text_input:
+            final_query = text_input
+
+        if final_query:
+            st.session_state.chat_history.append({"role": "user", "content": final_query})
+            with st.spinner("⏳"):
+                analisis = st.session_state.demo_agent.clasificar_intencion(final_query)
+                st.session_state.current_video = analisis["video"]
+                
+                texto_resp = analisis["texto"]
+                map_url = None
+                qr_url = None
+
+                if analisis["destino"]:
+                    origen_raw = "Zócalo, CDMX" 
+                    origen, destino = urllib.parse.quote(origen_raw), urllib.parse.quote(analisis["destino"])
+                    map_url = f"https://www.google.com/maps/embed/v1/directions?key={GOOGLE_API_KEY}&origin={origen}&destination={destino}&mode=transit"
+                    mobile_url = f"https://www.google.com/maps/dir/?api=1&origin={origen}&destination={destino}&travelmode=transit"
+                    qr_url = f"https://api.qrserver.com/v1/create-qr-code/?size=150x150&data={urllib.parse.quote(mobile_url)}"
+                    
+                    texto_preparado = ("Precaución, saturación alta. " if "🔴 Alta" in location_context else "") + texto_resp
+                    texto_resp = st.session_state.demo_agent.traduccion_inteligente(texto_preparado, final_query)
+
+                st.session_state.chat_history.append({"role": "assistant", "content": texto_resp, "map_url": map_url, "qr_url": qr_url})
+            st.rerun()
+
+with col2:
     st.markdown("")
     video_path = st.session_state.current_video
     idle_path = f"{VIDEOS_DIR}/idle.mp4"
@@ -145,7 +259,6 @@ with col1:
         is_idle = "idle" in video_path
 
         if is_idle:
-            # ESTADO 1: Solo el idle en loop
             html_code = f"""
             <style>body {{ margin: 0; background: transparent; display: flex; justify-content: center; }}</style>
             <video autoplay loop muted playsinline style="width: 100%; max-width: 450px; aspect-ratio: 1/1; border-radius: 30px; border: 4px solid #F7931E; box-shadow: 0 10px 25px rgba(0,0,0,0.3); background-color: #000; object-fit: cover; pointer-events: none;">
@@ -153,7 +266,6 @@ with col1:
             </video>
             """
         else:
-            # ESTADO 2: Doble capa con script independiente para garantizar el fade-out
             html_code = f"""
             <style>body {{ margin: 0; background: transparent; display: flex; justify-content: center; }}</style>
             <div style="position: relative; width: 100%; max-width: 450px; aspect-ratio: 1/1; border-radius: 30px; border: 4px solid #F7931E; box-shadow: 0 10px 25px rgba(0,0,0,0.3); overflow: hidden; background-color: #000; pointer-events: none;">
@@ -174,115 +286,9 @@ with col1:
             </script>
             """
         
-        # Renderizamos usando components.html para evitar el bloqueo de Streamlit
         components.html(html_code, height=480)
         
     else:
         if os.path.exists(PLACEHOLDER_PATH):
             st.image(PLACEHOLDER_PATH, use_container_width=True)
         st.warning(f"⚠️ Faltan videos. Verifica que existan en la carpeta '{VIDEOS_DIR}'")
-
-with col2:
-    st.markdown("")
-
-    if st.session_state.active_mode is None:
-        # MENÚ PRINCIPAL MASIVO
-        st.markdown("""
-        <style>
-            div[data-testid="stButton"] button { width: 100% !important; aspect-ratio: 1 / 1 !important; height: auto !important; border-radius: 30px !important; border: 4px solid #F7931E !important; background-color: #ffffff !important; transition: transform 0.2s !important; }
-            div[data-testid="stButton"] button:hover { transform: scale(1.05) !important; border: 4px solid #000000 !important; box-shadow: 0 15px 30px rgba(0,0,0,0.15) !important; }
-            div[data-testid="stButton"] button p, div[data-testid="stButton"] button div { font-size: 102px !important; margin: 0 !important; line-height: 1 !important; display: flex !important; align-items: center !important; justify-content: center !important; }
-        </style>
-        """, unsafe_allow_html=True)
-
-        st.write("") # Pequeño respiro arriba
-        
-        # Creamos 4 columnas iguales en lugar de una grilla 2x2
-        col_rutas, col_turismo, col_mundial, col_seguridad = st.columns(4, gap="medium")
-        
-        with col_rutas:
-            if st.button(MODOS["rutas"]["icon"], use_container_width=True): 
-                st.session_state.active_mode = "rutas"
-                st.session_state.current_video = MODOS["rutas"]["video"]
-                st.rerun()
-                
-        with col_turismo:
-            if st.button(MODOS["turismo"]["icon"], use_container_width=True): 
-                st.session_state.active_mode = "turismo"
-                st.session_state.current_video = MODOS["turismo"]["video"]
-                st.rerun()
-                
-        with col_mundial:
-            if st.button(MODOS["mundial"]["icon"], use_container_width=True): 
-                st.session_state.active_mode = "mundial"
-                st.session_state.current_video = MODOS["mundial"]["video"]
-                st.rerun()
-                
-        with col_seguridad:
-            if st.button(MODOS["seguridad"]["icon"], use_container_width=True): 
-                st.session_state.active_mode = "seguridad"
-                st.session_state.current_video = MODOS["seguridad"]["video"]
-                st.rerun()
-
-    else:
-        modo_actual = MODOS[st.session_state.active_mode]
-        c_back, c_icon, c_void = st.columns([1, 1, 3])
-        with c_back:
-            if st.button("🔙", key="btn_back"):
-                st.session_state.active_mode = None
-                st.session_state.chat_history = []
-                st.session_state.current_video = f"{VIDEOS_DIR}/idle.mp4"
-                st.rerun()
-        with c_icon:
-            st.markdown(f"<h1 style='margin-top: -10px;'>{modo_actual['icon']}</h1>", unsafe_allow_html=True)
-            
-        st.divider()
-
-        with st.container(height=350, border=False):
-            for msg in st.session_state.chat_history:
-                with st.chat_message(msg["role"]):
-                    st.write(msg["content"])
-                    if msg.get("map_url"):
-                        st.components.v1.iframe(msg["map_url"], height=300, scrolling=True)
-                        if msg.get("qr_url"):
-                            c_qr, c_texto = st.columns([1, 3])
-                            with c_qr: st.image(msg["qr_url"], width=120)
-                            with c_texto: st.info("📱 **Escanea este código** para llevarte la ruta a tu celular.")
-
-        with st.container(border=True):
-            c_mic, c_txt = st.columns([1, 4])
-            with c_mic: audio_data = mic_recorder(start_prompt="🎤", stop_prompt="⏹️", key='recorder', format="wav", use_container_width=True)
-            with c_txt: text_input = st.chat_input("💬")
-
-        final_query = None
-        if audio_data and ("last_audio_id" not in st.session_state or st.session_state.last_audio_id != audio_data['id']):
-            st.session_state.last_audio_id = audio_data['id']
-            with st.spinner("⏳"):
-                texto = st.session_state.demo_agent.transcribe_audio(audio_data['bytes'])
-                if texto: final_query = texto
-        elif text_input:
-            final_query = text_input
-
-        if final_query:
-            st.session_state.chat_history.append({"role": "user", "content": final_query})
-            with st.spinner("⏳"):
-                # 🪄 MAGIA AQUÍ: Obtenemos qué video poner y a dónde mandarlo
-                analisis = st.session_state.demo_agent.clasificar_intencion(final_query)
-                st.session_state.current_video = analisis["video"]
-                
-                texto_resp = analisis["texto"]
-                map_url = None
-                qr_url = None
-
-                if analisis["destino"]:
-                    origen_raw = "Zócalo, CDMX" 
-                    origen, destino = urllib.parse.quote(origen_raw), urllib.parse.quote(analisis["destino"])
-                    map_url = f"https://www.google.com/maps/embed/v1/directions?key={GOOGLE_API_KEY}&origin={origen}&destination={destino}&mode=transit"
-                    mobile_url = f"https://www.google.com/maps/dir/?api=1&origin={origen}&destination={destino}&travelmode=transit"
-                    qr_url = f"https://api.qrserver.com/v1/create-qr-code/?size=150x150&data={urllib.parse.quote(mobile_url)}"
-                    
-                    texto_preparado = ("Precaución, saturación alta. " if "🔴 Alta" in location_context else "") + texto_resp
-                    texto_resp = st.session_state.demo_agent.traduccion_inteligente(texto_preparado, final_query)
-
-                st.session_state.chat_history.append({"role": "assistant", "content": texto_resp, "map_url": map_url, "qr_url": qr_url})
-            st.rerun()
