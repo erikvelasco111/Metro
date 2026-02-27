@@ -3,30 +3,24 @@ import os
 import requests
 import logging
 import base64
-import json
-import random # 🚀 NUEVO: Para el simulador de cámaras
+import random
 import googlemaps
 import urllib.parse
 import streamlit.components.v1 as components
 import speech_recognition as sr
 import io
 from datetime import datetime 
-from typing import Dict, Optional
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.output_parsers import JsonOutputParser
-from pydantic import BaseModel, Field
-from streamlit_js_eval import get_geolocation
 from streamlit_mic_recorder import mic_recorder
 
 # --- 1. CONFIGURACIÓN DE PÁGINA ---
 st.set_page_config(page_title="Metro CDMX - Módulo Virtual", layout="wide", page_icon=None)
 
-# --- 2. CONFIGURACIÓN DE ARCHIVOS ---
+# --- 2. CONFIGURACIÓN DE ARCHIVOS Y RUTAS ---
 LOGO_PATH = "Logo_STC_METRO.svg" 
-PLACEHOLDER_PATH = "espera.jpeg" 
+VIDEOS_DIR = "videos"
 
-# --- 3. HELPER PARA IMÁGENES ---
 def get_image_src(image_path):
     if os.path.exists(image_path):
         with open(image_path, "rb") as img_file:
@@ -36,455 +30,213 @@ def get_image_src(image_path):
     return ""
 
 logo_src = get_image_src(LOGO_PATH) or "https://upload.wikimedia.org/wikipedia/commons/thumb/1/13/Metro_de_la_Ciudad_de_M%C3%A9xico_logo.svg/1200px-Metro_de_la_Ciudad_de_M%C3%A9xico_logo.svg.png"
-placeholder_src = get_image_src(PLACEHOLDER_PATH)
 
-# --- 4. ESTILOS CSS (METRO + KIOSCO TOUCH) ---
+# --- 3. ESTILOS CSS ---
 st.markdown(f"""
 <style>
     #MainMenu {{visibility: hidden;}}
     footer {{visibility: hidden;}}
     header {{visibility: hidden;}}
-    
-    .stApp {{
-        background-color: #f0f0f0;
-        font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
-    }}
-
-    .metro-navbar {{
-        background-color: #000000;
-        height: 80px;
-        width: 100%;
-        display: flex;
-        align-items: center;
-        padding: 0 20px;
-        border-bottom: 6px solid #F7931E; 
-        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-        position: fixed;
-        top: 0;
-        left: 0;
-        z-index: 99999;
-    }}
-    
-    .metro-logo-img {{
-        height: 50px;
-        margin-right: 15px;
-    }}
-    
-    .metro-title {{
-        color: white;
-        font-size: 24px;
-        font-weight: bold;
-        letter-spacing: 1px;
-    }}
-
-    .block-container {{
-        padding-top: 6rem !important;
-    }}
-
-    .stChatInput {{
-        border-color: #F7931E !important;
-    }}
-
+    .stApp {{ background-color: #f0f0f0; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; }}
+    .metro-navbar {{ background-color: #000000; height: 80px; width: 100%; display: flex; align-items: center; padding: 0 20px; border-bottom: 6px solid #F7931E; box-shadow: 0 4px 6px rgba(0,0,0,0.1); position: fixed; top: 0; left: 0; z-index: 99999; }}
+    .metro-logo-img {{ height: 50px; margin-right: 15px; }}
+    .metro-title {{ color: white; font-size: 24px; font-weight: bold; letter-spacing: 1px; }}
+    .block-container {{ padding-top: 6rem !important; }}
+    .stChatInput {{ border-color: #F7931E !important; }}
 </style>
-
 <div class="metro-navbar">
     <img src="{logo_src}" class="metro-logo-img">
     <div class="metro-title">MÓDULO DE ATENCIÓN VIRTUAL</div>
 </div>
 """, unsafe_allow_html=True)
 
-# --- LOGS & KEYS ---
+# --- 4. LOGS & KEYS ---
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 GOOGLE_API_KEY = st.secrets.get("GOOGLE_API_KEY")
-DID_API_KEY = st.secrets.get("DID_API_KEY")
-DID_AGENT_ID = st.secrets.get("DID_AGENT_ID")
-
 try:
     gmaps = googlemaps.Client(key=GOOGLE_API_KEY)
 except Exception:
     gmaps = None
 
 MODOS = {
-    "rutas": {
-        "icon": "🗺️",
-        "prompt": "Eres el experto en movilidad del Metro CDMX. Tu objetivo es guiar al usuario. Tienes la capacidad de mostrar mapas interactivos. Si te piden una ruta, DELEGA las indicaciones al mapa en pantalla.",
-        "trigger": "Hola, necesito llegar a mi destino."
-    },
-    "mundial": {
-        "icon": "⚽",
-        "prompt": "Eres el guía oficial del Mundial 2026 en la CDMX. Proporcionas horarios y sedes. Si el usuario pregunta cómo llegar al estadio, activa el mapa.",
-        "trigger": "Hola, busco información sobre los horarios de partidos y las sedes del mundial."
-    },
-    "turismo": {
-        "icon": "🌮",
-        "prompt": "Eres un guía turístico experto de la CDMX. Recomiendas lugares y restaurantes. Si el usuario quiere saber cómo llegar a tu recomendación, activa el mapa.",
-        "trigger": "Hola, ¿qué restaurantes o lugares turísticos increíbles me recomiendas visitar hoy?"
-    },
-    "seguridad": {
-        "icon": "🛡️",
-        "prompt": "Eres el canal directo de participación ciudadana y seguridad del Metro. Ayudas al usuario a reportar incidentes. Transmites seguridad y empatía.",
-        "trigger": "Hola, quiero reportar un incidente de seguridad o expresar mi opinión."
-    }
+    "rutas": {"icon": "🗺️", "video": f"{VIDEOS_DIR}/bienvenida_rutas.mp4"},
+    "mundial": {"icon": "⚽", "video": f"{VIDEOS_DIR}/bienvenida_mundial.mp4"},
+    "turismo": {"icon": "🌮", "video": f"{VIDEOS_DIR}/bienvenida_turismo.mp4"},
+    "seguridad": {"icon": "🛡️", "video": f"{VIDEOS_DIR}/bienvenida_seguridad.mp4"}
 }
 
-def obtener_instrucciones_habladas(origen, destino):
-    """Consulta la API de Google Maps con hora exacta para extraer una ruta narrada precisa."""
-    if not gmaps:
-        return "Te muestro la ruta en la pantalla."
-    try:
-        rutas = gmaps.directions(origen, destino, mode="transit", language="es", region="MX", departure_time=datetime.now())
-        
-        if not rutas:
-            return "Aquí tienes la mejor ruta en el mapa."
-        
-        tiempo = rutas[0]['legs'][0]['duration']['text']
-        pasos = rutas[0]['legs'][0]['steps']
-        
-        narrativa = f"El viaje tomará unos {tiempo}. "
-        pasos_leidos = 0
-        
-        for paso in pasos:
-            if paso['travel_mode'] == 'TRANSIT':
-                pasos_leidos += 1
-                detalles = paso['transit_details']
-                linea = detalles['line'].get('short_name', detalles['line'].get('name', ''))
-                vehiculo = detalles['line']['vehicle'].get('name', 'transporte')
-                direccion = detalles.get('headsign', '')
-                
-                texto_paso = f"Toma el {vehiculo} línea {linea}"
-                if direccion:
-                    texto_paso += f" hacia {direccion}"
-                narrativa += texto_paso + ". "
-                
-                if pasos_leidos >= 2:
-                    narrativa += "Sigue los detalles de los transbordos en la pantalla."
-                    break
-                
-        if pasos_leidos == 0:
-             narrativa += "Por favor sigue las indicaciones de caminata en la pantalla."
-             
-        return narrativa
-    except Exception as e:
-        logger.error(f"Error sacando narrativa: {e}")
-        return "Te muestro la ruta detallada en la pantalla."
+# --- 5. GPS Y SIMULADOR DE CÁMARAS ---
+def obtener_info_gps_silent():
+    lat, lon, estacion = 19.4326018, -99.1328416, "Metro Zócalo"
+    nivel = random.randint(10, 95) 
+    semaforo = "🔴 Alta" if nivel >= 75 else ("🟡 Media" if nivel >= 40 else "🟢 Ágil")
+    return f"{lat},{lon} (Cerca de {estacion} | Semáforo: {semaforo})"
 
-# --- AGENTE ---
-class DIDAgent:
+location_context = obtener_info_gps_silent()
+
+# --- 6. MOTOR "MAGO DE OZ" ---
+class DemoAgent:
     def __init__(self):
-        self.did_api_key = DID_API_KEY
-        self.google_api_key = GOOGLE_API_KEY
-        self.agent_id = DID_AGENT_ID
-        
-        if not self.did_api_key or not self.agent_id:
-            st.error("Error: Faltan credenciales.")
-            st.stop()
-
-        if not self.did_api_key.startswith("Basic"):
-             api_key_encoded = base64.b64encode(self.did_api_key.encode("utf-8")).decode("utf-8")
-             self.auth_header = f"Basic {api_key_encoded}"
-        else:
-             self.auth_header = self.did_api_key
-
-        self.headers_did = {"Authorization": self.auth_header, "Content-Type": "application/json"}
-        self.did_base_url = "https://api.d-id.com"
-        
-        self.llm = ChatGoogleGenerativeAI(
-            model="gemini-2.5-flash", 
-            google_api_key=self.google_api_key,
-            temperature=0.1 
-        )
-
-    def create_stream(self) -> Dict:
-        endpoint = f"agents/{self.agent_id}/streams"
-        return self._make_did_request(endpoint, "POST")
-
-    def send_text_to_stream(self, stream_id: str, session_id: str, text: str):
-        endpoint = f"agents/{self.agent_id}/streams/{stream_id}"
-        payload = {
-            "script": {
-                "type": "text", 
-                "input": text, 
-                "provider": {"type": "microsoft", "voice_id": "es-MX-JorgeNeural"}
-            },
-            "session_id": session_id 
-        }
-        self._make_did_request(endpoint, "POST", json_data=payload)
-
-    def generate_response_with_context(self, query: str, context: str, user_location_info: str = "") -> dict:
-        class ResponseStructure(BaseModel):
-            responseText: str = Field(description="Respuesta hablada")
-            mostrar_mapa: bool = Field(description="True SOLO si el usuario pide explícitamente cómo llegar a un lugar o una ruta.", default=False)
-            origen: str = Field(description="Déjalo vacío. No lo extraigas.", default="")
-            destino: str = Field(description="Lugar al que quiere ir el usuario.", default="")
-
-        parser = JsonOutputParser(pydantic_object=ResponseStructure)
-
-        prompt = ChatPromptTemplate.from_template(
-            """
-            {context}
-            
-            UBICACIÓN USUARIO: {location_info}
-            PREGUNTA: {query}
-            
-            INSTRUCCIONES ESTRICTAS:
-            - Sé breve, amable y directo (máx 30 palabras).
-            - MULTILENGUAJE: Detecta el idioma en el que está escrita la "PREGUNTA" y responde SIEMPRE en ese mismo idioma de forma nativa.
-            - MAPAS: Si la pregunta requiere dar direcciones de cómo llegar, pon 'mostrar_mapa' en true, y llena ÚNICAMENTE el 'destino'. 
-            - Si muestras el mapa, tu 'responseText' SOLO debe decir que la ruta está en pantalla. NO des pasos verbales.
-            - PROHIBIDO usar frases de relleno como 'Entiendo', 'Claro' o 'Aquí tienes la información'.
-            - {format_instructions}
-            """
-        )
-        chain = prompt | self.llm | parser
-        try:
-            return chain.invoke({
-                "context": context, "query": query,
-                "location_info": user_location_info,
-                "format_instructions": parser.get_format_instructions()
-            })
-        except Exception:
-            return {"responseText": "Lo siento, hay intermitencia en la red."}
-
-    def traduccion_inteligente(self, texto_espanol: str, query_usuario: str) -> str:
-        """Traduce instrucciones técnicas al idioma detectado en la pregunta del usuario."""
-        prompt = ChatPromptTemplate.from_template(
-            "Eres el intérprete del Metro CDMX. Traduce este texto: '{texto}' "
-            "al idioma de la pregunta: '{query}'. "
-            "\n\nREGLA CRÍTICA: NO incluyas introducciones, explicaciones ni comentarios. "
-            "NO digas 'Aquí está la traducción' ni nada parecido. "
-            "Devuelve ÚNICAMENTE el texto traducido de forma directa. "
-            "Mantén nombres de estaciones en español."
-        )
-        chain = prompt | self.llm
-        try:
-            resultado = chain.invoke({"texto": texto_espanol, "query": query_usuario})
-            # Usamos strip() para limpiar cualquier salto de línea accidental
-            return resultado.content.strip() 
-        except:
-            return texto_espanol
+        self.llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", google_api_key=GOOGLE_API_KEY, temperature=0)
 
     def transcribe_audio(self, audio_bytes: bytes) -> str:
         r = sr.Recognizer()
         try:
             audio_file = io.BytesIO(audio_bytes)
             with sr.AudioFile(audio_file) as source:
-                audio_data = r.record(source)
-                return r.recognize_google(audio_data, language="es-MX")
-        except:
-            return ""
+                return r.recognize_google(r.record(source), language="es-MX")
+        except: return ""
 
-    def _make_did_request(self, endpoint: str, method: str, json_data: Optional[Dict] = None) -> Dict:
-        url = f"{self.did_base_url}/{endpoint}"
+    def clasificar_intencion(self, query: str) -> dict:
+        """El verdadero mago: detecta qué pregrabado lanzar según lo que diga el usuario."""
+        prompt = ChatPromptTemplate.from_template(
+            "Clasifica esta pregunta del usuario: '{query}'. "
+            "Responde ÚNICAMENTE con una de estas 4 claves: "
+            "1. 'azteca' (Si menciona estadio azteca o banorte). "
+            "2. 'sudafrica' (Si menciona México, Sudáfrica o partido inaugural). "
+            "3. 'restaurante' (Si busca comer, comida o restaurante). "
+            "4. 'perdido' (Si menciona reporte, objeto perdido o robo). "
+            "Si no es ninguna, responde 'otro'."
+        )
         try:
-            response = requests.request(method, url, headers=self.headers_did, json=json_data, timeout=30)
-            if response.status_code >= 400:
-                logger.error(f"Error D-ID ({response.status_code}): {response.text}")
-                return {"error": True, "details": response.text}
-            response.raise_for_status()  
-            return response.json()
-        except Exception as e:
-            logger.error(f"Excepción Request: {e}")
-            return {"error": True, "details": str(e)}
+            intencion = (prompt | self.llm).invoke({"query": query}).content.strip().lower()
+            
+            # Mapeamos la intención al video de Hedra, el destino para el mapa y el texto de respaldo
+            if "azteca" in intencion:
+                return {"video": f"{VIDEOS_DIR}/resp_azteca.mp4", "destino": "Estadio Azteca", "texto": "Ruta al Estadio Azteca confirmada. Desde Zócalo, toma la Línea 2 hasta Tasqueña y ahí transborda al Tren Ligero hasta la estación Estadio Azteca. Ten en cuenta que hay saturación alta en esta estación, toma precauciones. Tu mapa está en pantalla."}
+            elif "sudafrica" in intencion:
+                return {"video": f"{VIDEOS_DIR}/resp_sudafrica.mp4", "destino": "Estadio Azteca", "texto": "¡El histórico partido inaugural! México contra Sudáfrica, juego uno del Grupo A. La cita es el jueves 11 de junio a las 15:00 horas en el imponente Estadio Azteca. Te dejo la ruta exacta aquí abajo."}
+            elif "restaurante" in intencion:
+                return {"video": f"{VIDEOS_DIR}/resp_restaurante.mp4", "destino": "Restaurante Balcón del Zócalo, Centro Histórico, CDMX", "texto": "¡Qué rico! El Centro Histórico tiene opciones increíbles como el Balcón del Zócalo. Te muestro en el mapa cómo llegar paso a paso para que disfrutes tu comida."}
+            elif "perdido" in intencion:
+                return {"video": f"{VIDEOS_DIR}/resp_perdido.mp4", "destino": None, "texto": "Lamento escuchar eso, entiendo la frustración. He registrado el reporte. Por favor, para contactar a la oficina de objetos extraviados dirígete a la jefatura y estación, ahí te apoyarán. Estamos para apoyarte."}
+            else:
+                return {"video": f"{VIDEOS_DIR}/idle.mp4", "destino": None, "texto": "No entendí bien, ¿puedes repetirlo?"}
+        except:
+            return {"video": f"{VIDEOS_DIR}/idle.mp4", "destino": None, "texto": "Error de conexión."}
 
-# --- GPS Y SIMULADOR DE CÁMARAS (PILOTO DE SATURACIÓN) ---
-def obtener_info_gps_silent():
-    # ==========================================
-    # CÓDIGO DEMO (BLOQUEADO EN METRO ZÓCALO)
-    # ==========================================
-    lat = 19.4326018
-    lon = -99.1328416
-    estacion = "Metro Zócalo"
-    
-    nivel_saturacion = random.randint(10, 95) 
-    
-    if nivel_saturacion >= 75: 
-        semaforo = "🔴 Alta"
-    elif nivel_saturacion >= 40: 
-        semaforo = "🟡 Media"
-    else: 
-        semaforo = "🟢 Ágil"
-        
-    logger.info(f"[DEMO MODE] Cámara virtual en {estacion} detecta saturación del {nivel_saturacion}% ({semaforo})")
-    return f"{lat},{lon} (Cerca de {estacion} | Semáforo: {semaforo})"
-
-# --- JAVASCRIPT WEBRTC ---
-def get_webrtc_js(stream_data, agent_id, did_api_key, placeholder_img_src):
-    if not stream_data or "id" not in stream_data:
-        return "<div style='color:red; text-align:center;'>Error: No hay señal de video.</div>"
-
-    stream_id = stream_data['id']
-    session_id = stream_data['session_id']
-    offer = stream_data['offer']
-    ice_servers = stream_data['ice_servers']
-    
-    if not did_api_key.startswith("Basic"):
-        auth_val = "Basic " + base64.b64encode(did_api_key.encode("utf-8")).decode("utf-8")
-    else:
-        auth_val = did_api_key
-
-    return f"""
-    <style>
-        body {{ margin: 0; display: flex; justify-content: center; background-color: transparent; }}
-        .video-container {{ position: relative; width: 100%; max-width: 450px; height: 450px; background: #000; border-radius: 20px; overflow: hidden; box-shadow: 0 10px 25px rgba(0,0,0,0.3); margin: 0 auto; }}
-        #poster-layer {{ position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; z-index: 2; transition: opacity 0.5s ease-in-out; opacity: 1; pointer-events: none; }}
-        #talk-video {{ width: 100%; height: 100%; object-fit: cover; object-position: center top; z-index: 1; }}
-    </style>
-    <div class="video-container">
-        <img id="poster-layer" src="{placeholder_img_src}">
-        <video id="talk-video" autoplay playsinline></video>
-    </div>
-    <script>
-    (async function() {{
-        const videoElem = document.getElementById('talk-video');
-        const posterElem = document.getElementById('poster-layer');
-        try {{
-            const peerConnection = new RTCPeerConnection({{ iceServers: {json.dumps(ice_servers)} }});
-            peerConnection.ontrack = (event) => {{
-                if (event.streams[0]) {{
-                    videoElem.srcObject = event.streams[0];
-                    videoElem.onloadeddata = () => {{ posterElem.style.opacity = '0'; videoElem.play(); }};
-                }}
-            }};
-            peerConnection.onicecandidate = (event) => {{
-                if (event.candidate) {{
-                    fetch(`https://api.d-id.com/agents/{agent_id}/streams/{stream_id}/ice`, {{
-                        method: 'POST', headers: {{ 'Authorization': '{auth_val}', 'Content-Type': 'application/json' }},
-                        body: JSON.stringify({{ candidate: event.candidate.candidate, sdpMid: event.candidate.sdpMid, sdpMLineIndex: event.candidate.sdpMLineIndex, session_id: "{session_id}" }})
-                    }});
-                }}
-            }};
-            await peerConnection.setRemoteDescription({json.dumps(offer)});
-            const answer = await peerConnection.createAnswer();
-            await peerConnection.setLocalDescription(answer);
-            await fetch(`https://api.d-id.com/agents/{agent_id}/streams/{stream_id}/sdp`, {{
-                method: 'POST', headers: {{ 'Authorization': '{auth_val}', 'Content-Type': 'application/json' }},
-                body: JSON.stringify({{ answer: answer, session_id: "{session_id}" }})
-            }});
-        }} catch(e) {{ console.log(e); }}
-    }})();
-    </script>
-    """
+    def traduccion_inteligente(self, texto: str, query: str) -> str:
+        prompt = ChatPromptTemplate.from_template("Traduce sin explicaciones extras: '{texto}' al idioma de '{query}'.")
+        try: return (prompt | self.llm).invoke({"texto": texto, "query": query}).content.strip()
+        except: return texto
 
 # --- INICIALIZACIÓN ---
-if "did_agent" not in st.session_state: st.session_state.did_agent = DIDAgent()
+if "demo_agent" not in st.session_state: st.session_state.demo_agent = DemoAgent()
 if "active_mode" not in st.session_state: st.session_state.active_mode = None
 if "chat_history" not in st.session_state: st.session_state.chat_history = []
-if "intro_sent" not in st.session_state: st.session_state.intro_sent = False
-
-location_context = obtener_info_gps_silent()
+if "current_video" not in st.session_state: st.session_state.current_video = f"{VIDEOS_DIR}/idle.mp4"
 
 # --- LAYOUT PRINCIPAL ---
-col1, col2 = st.columns([1, 1], gap="large")
+col1, col2 = st.columns([1, 2], gap="large")
 
 with col1:
     st.markdown("")
+    video_path = st.session_state.current_video
+    idle_path = f"{VIDEOS_DIR}/idle.mp4"
     
-    if "stream_data" in st.session_state and (not st.session_state.stream_data or "id" not in st.session_state.stream_data):
-         del st.session_state.stream_data
+    if os.path.exists(video_path) and os.path.exists(idle_path):
+        with open(video_path, "rb") as f:
+            b64_current = base64.b64encode(f.read()).decode()
+        with open(idle_path, "rb") as f:
+            b64_idle = base64.b64encode(f.read()).decode()
 
-    if "stream_data" not in st.session_state:
-        if os.path.exists(PLACEHOLDER_PATH):
-            c_ph1, c_ph2, c_ph3 = st.columns([1, 2, 1])
-            with c_ph2: st.image(PLACEHOLDER_PATH) 
+        is_idle = "idle" in video_path
+
+        if is_idle:
+            # ESTADO 1: Solo el idle en loop
+            html_code = f"""
+            <style>body {{ margin: 0; background: transparent; display: flex; justify-content: center; }}</style>
+            <video autoplay loop muted playsinline style="width: 100%; max-width: 450px; aspect-ratio: 1/1; border-radius: 30px; border: 4px solid #F7931E; box-shadow: 0 10px 25px rgba(0,0,0,0.3); background-color: #000; object-fit: cover; pointer-events: none;">
+                <source src="data:video/mp4;base64,{b64_idle}" type="video/mp4">
+            </video>
+            """
         else:
-            st.info("Iniciando sistema...")
-
-        try:
-            data = st.session_state.did_agent.create_stream()
-            if "error" in data or "id" not in data:
-                # Interfaz limpia sin botones de error ni JSON extraño
-                st.warning("⚠️ Módulo en mantenimiento o saturado. Por favor, recarga la página en un par de minutos.")
-            else:
-                st.session_state.stream_data = data
-                st.rerun() 
-        except Exception:
-            st.warning("⚠️ Error de conexión. Intenta recargar la página.")
-
+            # ESTADO 2: Doble capa con script independiente para garantizar el fade-out
+            html_code = f"""
+            <style>body {{ margin: 0; background: transparent; display: flex; justify-content: center; }}</style>
+            <div style="position: relative; width: 100%; max-width: 450px; aspect-ratio: 1/1; border-radius: 30px; border: 4px solid #F7931E; box-shadow: 0 10px 25px rgba(0,0,0,0.3); overflow: hidden; background-color: #000; pointer-events: none;">
+                
+                <video autoplay loop muted playsinline style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; z-index: 1;">
+                    <source src="data:video/mp4;base64,{b64_idle}" type="video/mp4">
+                </video>
+                
+                <video id="talk-vid" autoplay playsinline style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; z-index: 2; transition: opacity 0.4s ease-out;">
+                    <source src="data:video/mp4;base64,{b64_current}" type="video/mp4">
+                </video>
+            </div>
+            
+            <script>
+                document.getElementById('talk-vid').onended = function() {{
+                    this.style.opacity = '0';
+                }};
+            </script>
+            """
+        
+        # Renderizamos usando components.html para evitar el bloqueo de Streamlit
+        components.html(html_code, height=480)
+        
     else:
-        html_code = get_webrtc_js(st.session_state.stream_data, DID_AGENT_ID, DID_API_KEY, placeholder_src)
-        components.html(html_code, height=470)
+        if os.path.exists(PLACEHOLDER_PATH):
+            st.image(PLACEHOLDER_PATH, use_container_width=True)
+        st.warning(f"⚠️ Faltan videos. Verifica que existan en la carpeta '{VIDEOS_DIR}'")
 
-# ==========================================================
-# ADAPTACIÓN EN LA COLUMNA 2 (INTERFAZ VISUAL Y MULTILENGUAJE)
-# ==========================================================
 with col2:
     st.markdown("")
 
     if st.session_state.active_mode is None:
-        # 🚀 CSS DINÁMICO: Forza un cuadrado perfecto con aspect-ratio
-        # 🚀 CSS DINÁMICO: Forza un cuadrado perfecto y emojis masivos
+        # MENÚ PRINCIPAL MASIVO
         st.markdown("""
         <style>
-            /* 1. Forma del botón (Cuadrado perfecto) */
-            div[data-testid="stButton"] button {
-                width: 100% !important;
-                aspect-ratio: 1 / 1 !important;
-                height: auto !important;
-                border-radius: 30px !important;
-                border: 4px solid #F7931E !important;
-                background-color: #ffffff !important;
-                transition: transform 0.2s !important;
-            }
-            
-            div[data-testid="stButton"] button:hover {
-                transform: scale(1.05) !important;
-                border: 4px solid #000000 !important;
-                box-shadow: 0 15px 30px rgba(0,0,0,0.15) !important;
-            }
-            
-            /* 2. 🚀 AQUÍ CONTROLAS EL TAMAÑO DEL EMOJI */
-            /* Agregamos la etiqueta 'div' y 'p' porque Streamlit a veces cambia donde guarda el texto */
-            div[data-testid="stButton"] button p,
-            div[data-testid="stButton"] button div {
-                font-size: 80px !important; /* <--- MODIFICA ESTE NÚMERO (ej. 130px, 150px) */
-                margin: 0 !important;
-                line-height: 1 !important;
-                display: flex !important;
-                align-items: center !important;
-                justify-content: center !important;
-            }
+            div[data-testid="stButton"] button { width: 100% !important; aspect-ratio: 1 / 1 !important; height: auto !important; border-radius: 30px !important; border: 4px solid #F7931E !important; background-color: #ffffff !important; transition: transform 0.2s !important; }
+            div[data-testid="stButton"] button:hover { transform: scale(1.05) !important; border: 4px solid #000000 !important; box-shadow: 0 15px 30px rgba(0,0,0,0.15) !important; }
+            div[data-testid="stButton"] button p, div[data-testid="stButton"] button div { font-size: 102px !important; margin: 0 !important; line-height: 1 !important; display: flex !important; align-items: center !important; justify-content: center !important; }
         </style>
         """, unsafe_allow_html=True)
 
-        # 🚀 CONTENEDOR AJUSTADO: Usamos una proporción 1-6-1 para centrar la grilla
-        # Al limitar el ancho, limitamos el alto automáticamente (gracias al aspect-ratio)
-        espacio_izq, centro, espacio_der = st.columns([2, 4, 2])
+        st.write("") # Pequeño respiro arriba
         
-        with centro:
-            st.write("") # Pequeño respiro arriba
-            c_menu1, c_menu2 = st.columns(2, gap="medium")
-            with c_menu1:
-                if st.button(MODOS["rutas"]["icon"], use_container_width=True): st.session_state.active_mode = "rutas"; st.rerun()
-                if st.button(MODOS["turismo"]["icon"], use_container_width=True): st.session_state.active_mode = "turismo"; st.rerun()
-            with c_menu2:
-                if st.button(MODOS["mundial"]["icon"], use_container_width=True): st.session_state.active_mode = "mundial"; st.rerun()
-                if st.button(MODOS["seguridad"]["icon"], use_container_width=True): st.session_state.active_mode = "seguridad"; st.rerun()
-    
+        # Creamos 4 columnas iguales en lugar de una grilla 2x2
+        col_rutas, col_turismo, col_mundial, col_seguridad = st.columns(4, gap="medium")
+        
+        with col_rutas:
+            if st.button(MODOS["rutas"]["icon"], use_container_width=True): 
+                st.session_state.active_mode = "rutas"
+                st.session_state.current_video = MODOS["rutas"]["video"]
+                st.rerun()
+                
+        with col_turismo:
+            if st.button(MODOS["turismo"]["icon"], use_container_width=True): 
+                st.session_state.active_mode = "turismo"
+                st.session_state.current_video = MODOS["turismo"]["video"]
+                st.rerun()
+                
+        with col_mundial:
+            if st.button(MODOS["mundial"]["icon"], use_container_width=True): 
+                st.session_state.active_mode = "mundial"
+                st.session_state.current_video = MODOS["mundial"]["video"]
+                st.rerun()
+                
+        with col_seguridad:
+            if st.button(MODOS["seguridad"]["icon"], use_container_width=True): 
+                st.session_state.active_mode = "seguridad"
+                st.session_state.current_video = MODOS["seguridad"]["video"]
+                st.rerun()
+
     else:
         modo_actual = MODOS[st.session_state.active_mode]
-        
         c_back, c_icon, c_void = st.columns([1, 1, 3])
         with c_back:
             if st.button("🔙", key="btn_back"):
                 st.session_state.active_mode = None
-                st.session_state.intro_sent = False
                 st.session_state.chat_history = []
+                st.session_state.current_video = f"{VIDEOS_DIR}/idle.mp4"
                 st.rerun()
         with c_icon:
             st.markdown(f"<h1 style='margin-top: -10px;'>{modo_actual['icon']}</h1>", unsafe_allow_html=True)
             
         st.divider()
-        
-        if not st.session_state.intro_sent and "stream_data" in st.session_state:
-            with st.spinner("⏳"):
-                resp = st.session_state.did_agent.generate_response_with_context(modo_actual["trigger"], modo_actual["prompt"], location_context)
-                texto_resp = resp.get("responseText", "")
-                if texto_resp:
-                    st.session_state.did_agent.send_text_to_stream(st.session_state.stream_data["id"], st.session_state.stream_data["session_id"], texto_resp)
-                    st.session_state.chat_history.append({"role": "assistant", "content": texto_resp})
-                st.session_state.intro_sent = True
 
         with st.container(height=350, border=False):
             for msg in st.session_state.chat_history:
@@ -492,14 +244,10 @@ with col2:
                     st.write(msg["content"])
                     if msg.get("map_url"):
                         st.components.v1.iframe(msg["map_url"], height=300, scrolling=True)
-
-                        # 🚀 NUEVO: MOSTRAR EL QR SI EXISTE EN EL MENSAJE
                         if msg.get("qr_url"):
                             c_qr, c_texto = st.columns([1, 3])
-                            with c_qr:
-                                st.image(msg["qr_url"], width=120)
-                            with c_texto:
-                                st.info("📱 **Escanea este código** para llevarte la ruta y abrirla directamente en los mapas de tu celular.")
+                            with c_qr: st.image(msg["qr_url"], width=120)
+                            with c_texto: st.info("📱 **Escanea este código** para llevarte la ruta a tu celular.")
 
         with st.container(border=True):
             c_mic, c_txt = st.columns([1, 4])
@@ -507,56 +255,34 @@ with col2:
             with c_txt: text_input = st.chat_input("💬")
 
         final_query = None
-
         if audio_data and ("last_audio_id" not in st.session_state or st.session_state.last_audio_id != audio_data['id']):
             st.session_state.last_audio_id = audio_data['id']
             with st.spinner("⏳"):
-                texto = st.session_state.did_agent.transcribe_audio(audio_data['bytes'])
+                texto = st.session_state.demo_agent.transcribe_audio(audio_data['bytes'])
                 if texto: final_query = texto
         elif text_input:
             final_query = text_input
 
         if final_query:
-            if "stream_data" in st.session_state:
-                st.session_state.chat_history.append({"role": "user", "content": final_query})
+            st.session_state.chat_history.append({"role": "user", "content": final_query})
+            with st.spinner("⏳"):
+                # 🪄 MAGIA AQUÍ: Obtenemos qué video poner y a dónde mandarlo
+                analisis = st.session_state.demo_agent.clasificar_intencion(final_query)
+                st.session_state.current_video = analisis["video"]
                 
-                with st.spinner("⏳ Procesando ruta precisa..."):
-                    resp = st.session_state.did_agent.generate_response_with_context(final_query, modo_actual["prompt"], location_context)
-                    texto_resp = resp.get("responseText", "Error de red")
-                    map_url = None
+                texto_resp = analisis["texto"]
+                map_url = None
+                qr_url = None
 
-                    qr_url = None # Inicializamos el QR como vacío por defecto
+                if analisis["destino"]:
+                    origen_raw = "Zócalo, CDMX" 
+                    origen, destino = urllib.parse.quote(origen_raw), urllib.parse.quote(analisis["destino"])
+                    map_url = f"https://www.google.com/maps/embed/v1/directions?key={GOOGLE_API_KEY}&origin={origen}&destination={destino}&mode=transit"
+                    mobile_url = f"https://www.google.com/maps/dir/?api=1&origin={origen}&destination={destino}&travelmode=transit"
+                    qr_url = f"https://api.qrserver.com/v1/create-qr-code/?size=150x150&data={urllib.parse.quote(mobile_url)}"
+                    
+                    texto_preparado = ("Precaución, saturación alta. " if "🔴 Alta" in location_context else "") + texto_resp
+                    texto_resp = st.session_state.demo_agent.traduccion_inteligente(texto_preparado, final_query)
 
-                    if resp.get("mostrar_mapa") and resp.get("destino"):
-                        origen_raw = "Zócalo, CDMX" 
-                        destino_raw = resp.get("destino") + ", CDMX"
-
-                        origen = urllib.parse.quote(origen_raw)
-                        destino = urllib.parse.quote(destino_raw)
-                        
-                        map_url = f"https://www.google.com/maps/embed/v1/directions?key={GOOGLE_API_KEY}&origin={origen}&destination={destino}&mode=transit"
-                        
-                        # 🚀 NUEVO: GENERADOR DE QR SIMPLE
-                        # Creamos una URL de Google Maps para móviles y pedimos la imagen QR a una API pública
-                        mobile_url = f"https://www.google.com/maps/dir/?api=1&origin={origen}&destination={destino}&travelmode=transit"
-                        qr_url = f"https://api.qrserver.com/v1/create-qr-code/?size=150x150&data={urllib.parse.quote(mobile_url)}"
-                        # -----------------------------------
-
-                        instrucciones_reales = obtener_instrucciones_habladas(origen_raw, destino_raw)
-                        
-                        advertencia = ""
-                        if "🔴 Alta" in location_context:
-                            advertencia = "Precaución, el sistema de cámaras detecta saturación alta en tu estación de origen. "
-                        elif "🟢 Ágil" in location_context:
-                            advertencia = "El flujo en tu estación actual es ágil. "
-
-                        texto_preparado = advertencia + instrucciones_reales
-                        texto_resp = st.session_state.did_agent.traduccion_inteligente(texto_preparado, final_query)
-
-                    st.session_state.did_agent.send_text_to_stream(st.session_state.stream_data["id"], st.session_state.stream_data["session_id"], texto_resp)
-                    # Guardamos el qr_url en el historial para que se pinte en pantalla
-                    st.session_state.chat_history.append({"role": "assistant", "content": texto_resp, "map_url": map_url, "qr_url": qr_url})
-                
-                st.rerun()
-            else:
-                st.warning("⏳")
+                st.session_state.chat_history.append({"role": "assistant", "content": texto_resp, "map_url": map_url, "qr_url": qr_url})
+            st.rerun()
