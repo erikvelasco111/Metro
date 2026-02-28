@@ -42,8 +42,15 @@ st.markdown(f"""
     .metro-navbar {{ background-color: #000000; height: 80px; width: 100%; display: flex; align-items: center; padding: 0 20px; border-bottom: 6px solid #F7931E; box-shadow: 0 4px 6px rgba(0,0,0,0.1); position: fixed; top: 0; left: 0; z-index: 99999; }}
     .metro-logo-img {{ height: 50px; margin-right: 15px; }}
     .metro-title {{ color: white; font-size: 24px; font-weight: bold; letter-spacing: 1px; }}
-    .block-container {{ padding-top: 6rem !important; }}
+    /* Ajustamos los paddings para que no sobre espacio abajo */
+    .block-container {{ padding-top: 6rem !important; padding-bottom: 0rem !important; }}
     .stChatInput {{ border-color: #F7931E !important; }}
+    
+    /* 🚀 NUEVO: BLOQUEO DE SCROLL GLOBAL (EFECTO KIOSCO FIJO) */
+    html, body, [data-testid="stAppViewContainer"], [data-testid="stMain"] {{
+        overflow-y: hidden !important; 
+        max-height: 100vh !important;
+    }}
 </style>
 <div class="metro-navbar">
     <img src="{logo_src}" class="metro-logo-img">
@@ -126,7 +133,8 @@ if "demo_agent" not in st.session_state: st.session_state.demo_agent = DemoAgent
 if "active_mode" not in st.session_state: st.session_state.active_mode = None
 if "chat_history" not in st.session_state: st.session_state.chat_history = []
 if "current_video" not in st.session_state: st.session_state.current_video = f"{VIDEOS_DIR}/idle.mp4"
-
+if "map_fullscreen" not in st.session_state: st.session_state.map_fullscreen = False
+if "active_map_url" not in st.session_state: st.session_state.active_map_url = None
 
 # --- LAYOUT PRINCIPAL (Menú Izquierda [2], Avatar Derecha [1]) ---
 col1, col2 = st.columns([2, 1], gap="large")
@@ -134,6 +142,22 @@ col1, col2 = st.columns([2, 1], gap="large")
 with col1:
     st.markdown("")
 
+    # --- VISTA A: MODO MAPA (POPUP DENTRO DE COL1) ---
+    if st.session_state.active_mode is not None and st.session_state.map_fullscreen:
+        c_map_title, c_close = st.columns([9, 1])
+        with c_map_title:
+            st.markdown(f"### 🗺️ Ruta sugerida hacia: {st.session_state.active_mode.capitalize()}")
+        with c_close:
+            # EL BOTÓN "X" PARA CERRAR
+            if st.button("❌", help="Cerrar mapa y volver al chat"):
+                st.session_state.map_fullscreen = False
+                st.rerun()
+        
+        # Mapa masivo que ocupa todo el alto disponible (600px)
+        st.components.v1.iframe(st.session_state.active_map_url, height=600, scrolling=True)
+        st.info("💡 Toca la 'X' arriba a la derecha para volver a hablar con el asistente.")
+
+    # --- VISTA B: MENÚ PRINCIPAL ---
     if st.session_state.active_mode is None:
         # MENÚ PRINCIPAL MASIVO
         st.markdown("""
@@ -197,12 +221,12 @@ with col1:
             
         st.divider()
 
-        with st.container(height=280, border=False):
+        with st.container(height=300, border=False):
             for msg in st.session_state.chat_history:
                 with st.chat_message(msg["role"]):
                     st.write(msg["content"])
                     if msg.get("map_url"):
-                        st.components.v1.iframe(msg["map_url"], height=300, scrolling=True)
+                        st.components.v1.iframe(msg["map_url"], height=450, scrolling=True)
                         if msg.get("qr_url"):
                             c_qr, c_texto = st.columns([1, 3])
                             with c_qr: st.image(msg["qr_url"], width=120)
@@ -213,6 +237,15 @@ with col1:
             with c_mic: audio_data = mic_recorder(start_prompt="🎤 Hablar", stop_prompt="⏹️ Detener", key='recorder', format="wav", use_container_width=True)
             with c_txt: text_input = st.chat_input("Escribe tu duda aquí...")
 
+        final_query = None
+        if audio_data and ("last_audio_id" not in st.session_state or st.session_state.last_audio_id != audio_data['id']):
+            st.session_state.last_audio_id = audio_data['id']
+            with st.spinner("⏳"):
+                texto = st.session_state.demo_agent.transcribe_audio(audio_data['bytes'])
+                if texto: final_query = texto
+        elif text_input:
+            final_query = text_input
+        
         final_query = None
         if audio_data and ("last_audio_id" not in st.session_state or st.session_state.last_audio_id != audio_data['id']):
             st.session_state.last_audio_id = audio_data['id']
@@ -235,14 +268,22 @@ with col1:
                 if analisis["destino"]:
                     origen_raw = "Zócalo, CDMX" 
                     origen, destino = urllib.parse.quote(origen_raw), urllib.parse.quote(analisis["destino"])
+                    # URL para el iframe
                     map_url = f"https://www.google.com/maps/embed/v1/directions?key={GOOGLE_API_KEY}&origin={origen}&destination={destino}&mode=transit"
+                    # URL para el QR
                     mobile_url = f"https://www.google.com/maps/dir/?api=1&origin={origen}&destination={destino}&travelmode=transit"
                     qr_url = f"https://api.qrserver.com/v1/create-qr-code/?size=150x150&data={urllib.parse.quote(mobile_url)}"
                     
                     texto_preparado = ("Precaución, saturación alta. " if "🔴 Alta" in location_context else "") + texto_resp
                     texto_resp = st.session_state.demo_agent.traduccion_inteligente(texto_preparado, final_query)
 
+                    # 🚀 TRUCO: Guardamos en session_state ANTES del rerun
+                    st.session_state.active_map_url = map_url
+                    st.session_state.map_fullscreen = True
+
                 st.session_state.chat_history.append({"role": "assistant", "content": texto_resp, "map_url": map_url, "qr_url": qr_url})
+            
+            # El rerun va al final de todo el procesamiento del query
             st.rerun()
 
 with col2:
@@ -269,26 +310,20 @@ with col2:
             html_code = f"""
             <style>body {{ margin: 0; background: transparent; display: flex; justify-content: center; }}</style>
             <div style="position: relative; width: 100%; max-width: 450px; aspect-ratio: 1/1; border-radius: 30px; border: 4px solid #F7931E; box-shadow: 0 10px 25px rgba(0,0,0,0.3); overflow: hidden; background-color: #000; pointer-events: none;">
-                
                 <video autoplay loop muted playsinline style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; z-index: 1;">
                     <source src="data:video/mp4;base64,{b64_idle}" type="video/mp4">
                 </video>
-                
                 <video id="talk-vid" autoplay playsinline style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; z-index: 2; transition: opacity 0.4s ease-out;">
                     <source src="data:video/mp4;base64,{b64_current}" type="video/mp4">
                 </video>
             </div>
-            
             <script>
                 document.getElementById('talk-vid').onended = function() {{
                     this.style.opacity = '0';
                 }};
             </script>
             """
-        
         components.html(html_code, height=480)
-        
     else:
         if os.path.exists(PLACEHOLDER_PATH):
             st.image(PLACEHOLDER_PATH, use_container_width=True)
-        st.warning(f"⚠️ Faltan videos. Verifica que existan en la carpeta '{VIDEOS_DIR}'")
