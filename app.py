@@ -42,14 +42,22 @@ st.markdown(f"""
     .metro-navbar {{ background-color: #000000; height: 80px; width: 100%; display: flex; align-items: center; padding: 0 20px; border-bottom: 6px solid #F7931E; box-shadow: 0 4px 6px rgba(0,0,0,0.1); position: fixed; top: 0; left: 0; z-index: 99999; }}
     .metro-logo-img {{ height: 50px; margin-right: 15px; }}
     .metro-title {{ color: white; font-size: 24px; font-weight: bold; letter-spacing: 1px; }}
-    /* Ajustamos los paddings para que no sobre espacio abajo */
-    .block-container {{ padding-top: 6rem !important; padding-bottom: 0rem !important; }}
+    
+    .block-container {{ padding-top: 4rem !important; padding-bottom: 0rem !important; }}
     .stChatInput {{ border-color: #F7931E !important; }}
     
-    /* 🚀 NUEVO: BLOQUEO DE SCROLL GLOBAL (EFECTO KIOSCO FIJO) */
-    html, body, [data-testid="stAppViewContainer"], [data-testid="stMain"] {{
-        overflow-y: hidden !important; 
-        max-height: 100vh !important;
+    /* 🚀 REPARADO: BLOQUEO DE SCROLL MÁS INTELIGENTE */
+    [data-testid="stAppViewContainer"] {{
+        overflow: hidden;
+    }}
+    
+    [data-testid="stMain"] {{
+        overflow-y: auto;
+        scrollbar-width: none;
+        -ms-overflow-style: none;
+    }}
+    [data-testid="stMain"]::-webkit-scrollbar {{
+        display: none;
     }}
 </style>
 <div class="metro-navbar">
@@ -236,15 +244,6 @@ with col1:
             c_mic, c_txt = st.columns([1, 4])
             with c_mic: audio_data = mic_recorder(start_prompt="🎤 Hablar", stop_prompt="⏹️ Detener", key='recorder', format="wav", use_container_width=True)
             with c_txt: text_input = st.chat_input("Escribe tu duda aquí...")
-
-        final_query = None
-        if audio_data and ("last_audio_id" not in st.session_state or st.session_state.last_audio_id != audio_data['id']):
-            st.session_state.last_audio_id = audio_data['id']
-            with st.spinner("⏳"):
-                texto = st.session_state.demo_agent.transcribe_audio(audio_data['bytes'])
-                if texto: final_query = texto
-        elif text_input:
-            final_query = text_input
         
         final_query = None
         if audio_data and ("last_audio_id" not in st.session_state or st.session_state.last_audio_id != audio_data['id']):
